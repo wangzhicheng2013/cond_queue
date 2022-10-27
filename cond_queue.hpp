@@ -35,7 +35,7 @@ public:
     void pop(T &e) {
         boost::unique_lock<boost::mutex> lock(mutex_);
         while (queue_.empty()) {
-            cond_.wait(lock);
+            cond_.wait(lock);   // block here and wait cond unlock 
         }
         e = queue_.front();
         queue_.pop_front();

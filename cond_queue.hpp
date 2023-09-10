@@ -1,30 +1,35 @@
 #pragma once
 #include <deque>
-#include <boost/function.hpp>
-#include <boost/thread/thread.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/locks.hpp>
-#include <boost/thread/condition_variable.hpp>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
 template <class T>
 class cond_queue {
+private:
+    unsigned int size_ = 16;
+    int block_timeout_ = 2;      // block for 2 seconds
+    std::deque<T>             queue_;
+    std::mutex                mutex_;
+    std::condition_variable   cond_;
 public:
-    cond_queue() : size_(1024) {
-    }
-    inline void set_size(int sz) {
+    inline void set_size(unsigned int sz) {
         size_ = sz;
     }
+    inline void set_block_timeout(int t) {
+        block_timeout_ = t;
+    }
     void push(const T &e) {
-        boost::unique_lock<boost::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_);
         if (queue_.size() >= size_) {
             lock.unlock();
             return;
         }
         queue_.push_back(e);
         lock.unlock();
-        cond_.notify_one();
+        cond_.notify_all();
     }
     bool try_pop(T &e) {
-        boost::lock_guard<boost::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
         if (!queue_.empty()) {
             e = queue_.front();
             queue_.pop_front();
@@ -32,21 +37,15 @@ public:
         }
         return false;
     }
-    void pop(T &e) {
-        boost::unique_lock<boost::mutex> lock(mutex_);
-        while (queue_.empty()) {
-            cond_.wait(lock);   // block here and wait cond unlock 
+    bool pop(T &e) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        // wait for timeout
+        cond_.wait_for(lock, std::chrono::seconds(block_timeout_), [this] { return queue_.size() > 0; } );
+        if (false == queue_.empty()) {
+            e = queue_.front();
+            queue_.pop_front(); 
+            return true;
         }
-        e = queue_.front();
-        queue_.pop_front();
+        return false;
     }
-    void flush() {
-        boost::lock_guard<boost::mutex> lock(mutex_);
-        cond_.notify_all();
-    }
-private:
-    int size_;
-    std::deque<T>               queue_;
-    boost::mutex                mutex_;
-    boost::condition_variable   cond_;
 };
